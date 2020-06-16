@@ -58,16 +58,16 @@ enum {
     VMX_EXIT_RDPMC                   = 15, // Guest executed RDPMC instruction
     VMX_EXIT_RDTSC                   = 16, // Guest executed RDTSC instruction
     VMX_EXIT_RSM                     = 17, // Guest executed RSM instruction in SMM
-    VMX_EXIT_VMCALL                  = 18,
-    VMX_EXIT_VMCLEAR                 = 19,
-    VMX_EXIT_VMLAUNCH                = 20,
-    VMX_EXIT_VMPTRLD                 = 21,
-    VMX_EXIT_VMPTRST                 = 22,
-    VMX_EXIT_VMREAD                  = 23,
-    VMX_EXIT_VMRESUME                = 24,
-    VMX_EXIT_VMWRITE                 = 25,
-    VMX_EXIT_VMXOFF                  = 26,
-    VMX_EXIT_VMXON                   = 27,
+    VMX_EXIT_VMCALL                  = 18, // Guest executed VMCALL instruction
+    VMX_EXIT_VMCLEAR                 = 19, // Guest executed VMCLEAR instruction
+    VMX_EXIT_VMLAUNCH                = 20, // Guest executed VMLAUNCH instruction
+    VMX_EXIT_VMPTRLD                 = 21, // Guest executed VMPTRLD instruction
+    VMX_EXIT_VMPTRST                 = 22, // Guest executed VMPTRST instruction
+    VMX_EXIT_VMREAD                  = 23, // Guest executed VMREAD instruction
+    VMX_EXIT_VMRESUME                = 24, // Guest executed VMRESUME instruction
+    VMX_EXIT_VMWRITE                 = 25, // Guest executed VMWRITE instruction
+    VMX_EXIT_VMXOFF                  = 26, // Guest executed VMXON instruction
+    VMX_EXIT_VMXON                   = 27, // Guest executed VMXOFF instruction
     VMX_EXIT_CR_ACCESS               = 28, // Guest accessed a control register
     VMX_EXIT_DR_ACCESS               = 29, // Guest attempted access to debug register
     VMX_EXIT_IO                      = 30, // Guest attempted I/O
@@ -91,7 +91,7 @@ enum {
     VMX_EXIT_VMX_TIMER_EXIT          = 52,
     VMX_EXIT_INVVPID                 = 53,
     VMX_EXIT_WBINVD                  = 54,
-    VMX_EXIT_XSETBV                  = 55,
+    VMX_EXIT_XSETBV                  = 55, // Guest executed XSETBV instruction
     VMX_EXIT_APIC_WRITE              = 56,
     VMX_EXIT_RDRAND                  = 57,
     VMX_EXIT_INVPCID                 = 58,
@@ -502,6 +502,12 @@ enum {
     GAS_CSTATE      = 4
 };
 
+// Intel SDM Vol. 3C: Table 24-3. Format of Interruptibility State
+#define GUEST_INTRSTAT_STI_BLOCKING            0x00000001
+#define GUEST_INTRSTAT_SS_BLOCKING             0x00000002
+#define GUEST_INTRSTAT_SMI_BLOCKING            0x00000004
+#define GUEST_INTRSTAT_NMI_BLOCKING            0x00000008
+
 #ifdef HAX_COMPILER_MSVC
 #pragma pack(push, 1)
 #endif
@@ -657,6 +663,7 @@ void vmx_vmwrite(struct vcpu_t *vcpu, const char *name,
 #define vmwrite(vcpu, x, y) vmx_vmwrite(vcpu, #x, x, y)
 
 #define VMREAD_SEG(vcpu, seg, val)                                 \
+    do {                                                           \
         ((val).selector = vmread(vcpu, GUEST_##seg##_SELECTOR),    \
          (val).base     = vmread(vcpu, GUEST_##seg##_BASE),        \
          (val).limit    = vmread(vcpu, GUEST_##seg##_LIMIT),       \
@@ -664,7 +671,8 @@ void vmx_vmwrite(struct vcpu_t *vcpu, const char *name,
         {                                                          \
             if ((val).null == 1)                                   \
                 (val).ar = 0;                                      \
-        }
+        }                                                          \
+    } while (false)
 
 #define VMREAD_DESC(vcpu, desc, val)                               \
         ((val).base  = vmread(vcpu, GUEST_##desc##_BASE),          \

@@ -66,11 +66,6 @@ void hax_vfree_aligned(void *va, uint32_t size, uint32_t alignment,
     hax_vfree_flags(va, size, flags);
 }
 
-void * hax_vmap(hax_pa_t pa, uint32_t size)
-{
-    return ioremap(pa, size);
-}
-
 void hax_vunmap(void *addr, uint32_t size)
 {
     return iounmap(addr);
@@ -94,7 +89,7 @@ struct hax_page * hax_alloc_pages(int order, uint32_t flags, bool vmap)
     gfp_mask = GFP_KERNEL;
     // TODO: Support HAX_MEM_LOW_4G
     if (flags & HAX_MEM_LOW_4G) {
-        hax_warning("%s: HAX_MEM_LOW_4G is ignored\n", __func__);
+        hax_log(HAX_LOGW, "%s: HAX_MEM_LOW_4G is ignored\n", __func__);
     }
 
     page = alloc_pages(GFP_KERNEL, order);

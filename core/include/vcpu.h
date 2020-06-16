@@ -31,6 +31,7 @@
 #ifndef HAX_CORE_VCPU_H_
 #define HAX_CORE_VCPU_H_
 
+#include "cpuid.h"
 #include "emulate.h"
 #include "vmx.h"
 #include "mtrr.h"
@@ -72,7 +73,6 @@ struct vcpu_vmx_data {
     uint32_t pin_ctls_base;
     uint32_t pcpu_ctls_base;
     uint32_t scpu_ctls_base;
-    uint32_t entry_ctls_base;
     uint32_t exc_bitmap_base;
     uint32_t exit_ctls_base;
 
@@ -133,7 +133,6 @@ struct vcpu_post_mmio {
     uint64_t value;
 };
 
-#ifdef CONFIG_HAX_EPT2
 struct mmio_fetch_cache {
     uint64_t last_gva;
     uint64_t last_guest_cr3;
@@ -141,15 +140,14 @@ struct mmio_fetch_cache {
     hax_kmap_user kmap;
     int hit_count;
 };
-#endif  // CONFIG_HAX_EPT2
 
 #define IOS_MAX_BUFFER 64
 
 struct vcpu_t {
     uint16_t vcpu_id;
-    uint16_t cpu_id;
+    uint32_t cpu_id;
     // Sometimes current thread might be migrated to other core.
-    uint16_t prev_cpu_id;
+    uint32_t prev_cpu_id;
     /*
      * VPID: Virtual Processor Identifier
      * VPIDs provide a way for software to identify to the processor
@@ -219,7 +217,6 @@ struct vcpu_t {
     uint64_t pae_pdptes[4];
 
     uint64_t cr_pat;
-    uint64_t cpuid_features_flag_mask;
 
     /* Debugging */
     uint32_t debug_control;
@@ -235,9 +232,15 @@ struct vcpu_t {
 
     struct em_context_t emulate_ctxt;
     struct vcpu_post_mmio post_mmio;
-#ifdef CONFIG_HAX_EPT2
     struct mmio_fetch_cache mmio_fetch;
-#endif  // CONFIG_HAX_EPT2
+
+    // Guest CPUID feature set
+    // * The CPUID feature set is always same for each vCPU. A CPUID instruction
+    //   executed on any core will get the same result.
+    // * All vCPUs share the unique memory, which is actually allocated by the
+    //   first vCPU created by VM. If any vCPU sets features in this field, all
+    //   vCPUs will change accordingly.
+    hax_cpuid_t *guest_cpuid;
 };
 
 #define vmx(v, field) v->vmx.field
@@ -263,6 +266,7 @@ int vcpu_get_fpu(struct vcpu_t *vcpu, struct fx_layout *fl);
 int vcpu_put_fpu(struct vcpu_t *vcpu, struct fx_layout *fl);
 int vcpu_get_msr(struct vcpu_t *vcpu, uint64_t entry, uint64_t *val);
 int vcpu_put_msr(struct vcpu_t *vcpu, uint64_t entry, uint64_t val);
+int vcpu_set_cpuid(struct vcpu_t *vcpu, hax_cpuid *cpuid_info);
 void vcpu_debug(struct vcpu_t *vcpu, struct hax_debug_t *debug);
 
 /* The declaration for OS wrapper code */
@@ -290,8 +294,6 @@ static inline bool valid_vcpu_id(int vcpu_id)
 }
 
 bool vcpu_is_panic(struct vcpu_t *vcpu);
-#ifndef hax_panic_vcpu
-void hax_panic_vcpu(struct vcpu_t *v, char *fmt, ...);
-#endif
+void vcpu_set_panic(struct vcpu_t *vcpu);
 
 #endif  // HAX_CORE_VCPU_H_

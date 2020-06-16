@@ -97,7 +97,7 @@ static long hax_dev_ioctl(struct file *filp, unsigned int cmd,
 
         cvm = hax_create_vm(&vm_id);
         if (!cvm) {
-            hax_log_level(HAX_LOGE, "Failed to create the HAX VM\n");
+            hax_log(HAX_LOGE, "Failed to create the HAX VM\n");
             ret = -ENOMEM;
             break;
         }
@@ -114,40 +114,40 @@ static long hax_dev_ioctl(struct file *filp, unsigned int cmd,
 
 static int __init hax_driver_init(void)
 {
-    int i, err;
+    int err;
 
-    // Initialization
-    max_cpus = num_present_cpus();
-    cpu_online_map = 0;
-    for (i = 0; i < max_cpus; i++) {
-        if (cpu_online(i))
-            cpu_online_map |= (1ULL << i);
+    err = cpu_info_init();
+    if (err) {
+        hax_log(HAX_LOGE, "Failed to initialize CPU info\n");
+        return err;
     }
 
     if (hax_module_init() < 0) {
-        hax_error("Failed to initialize HAXM module\n");
+        hax_log(HAX_LOGE, "Failed to initialize HAXM module\n");
+        cpu_info_exit();
         return -EAGAIN;
     }
 
     err = misc_register(&hax_dev);
     if (err) {
-        hax_error("Failed to register HAXM device\n");
+        hax_log(HAX_LOGE, "Failed to register HAXM device\n");
+        cpu_info_exit();
         hax_module_exit();
         return err;
     }
 
-    hax_info("Created HAXM device with minor=%d\n", hax_dev.minor);
+    hax_log(HAX_LOGI, "Created HAXM device with minor=%d\n", hax_dev.minor);
     return 0;
 }
 
 static void __exit hax_driver_exit(void)
 {
     if (hax_module_exit() < 0) {
-        hax_error("Failed to finalize HAXM module\n");
+        hax_log(HAX_LOGE, "Failed to finalize HAXM module\n");
     }
 
     misc_deregister(&hax_dev);
-    hax_info("Removed HAXM device\n");
+    hax_log(HAX_LOGI, "Removed HAXM device\n");
 }
 
 module_init(hax_driver_init);

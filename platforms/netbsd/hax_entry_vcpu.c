@@ -58,6 +58,40 @@ struct cdevsw hax_vcpu_cdevsw = {
     .d_flag = D_OTHER | D_MPSAFE
 };
 
+#define load_user_data(dest, src, body_len, body_max, arg_t, body_t)          \
+        void *uaddr = (void *)(*(arg_t **)(src));                             \
+        size_t size;                                                          \
+        arg_t header;                                                         \
+        (dest) = NULL;                                                        \
+        if (copyin(uaddr, &header, sizeof(arg_t))) {                          \
+            hax_log(HAX_LOGE, "%s: argument header read error.\n", __func__); \
+            ret = -EFAULT;                                                    \
+            break;                                                            \
+        }                                                                     \
+        if (header.body_len > (body_max)) {                                   \
+            hax_log(HAX_LOGW, "%s: %d exceeds argument body maximum %d.\n",   \
+                    __func__, header.body_len, (body_max));                   \
+            ret = -E2BIG;                                                     \
+            break;                                                            \
+        }                                                                     \
+        size = sizeof(arg_t) + header.body_len * sizeof(body_t);               \
+        (dest) = hax_vmalloc(size, HAX_MEM_NONPAGE);                          \
+        if ((dest) == NULL) {                                                 \
+            hax_log(HAX_LOGE, "%s: failed to allocate memory.\n", __func__);  \
+            ret = -ENOMEM;                                                    \
+            break;                                                            \
+        }                                                                     \
+        if (copyin(uaddr, (dest), size)) {                                    \
+            hax_log(HAX_LOGE, "%s: argument read error.\n", __func__);        \
+            unload_user_data(dest);                                           \
+            ret = -EFAULT;                                                    \
+            break;                                                            \
+        }
+
+#define unload_user_data(dest)       \
+        if ((dest) != NULL)          \
+            hax_vfree((dest), size);
+
 /* VCPU operations */
 
 int hax_vcpu_open(dev_t self, int flag __unused, int mode __unused,
@@ -67,11 +101,12 @@ int hax_vcpu_open(dev_t self, int flag __unused, int mode __unused,
     struct vcpu_t *cvcpu;
     struct hax_vcpu_netbsd_t *vcpu;
     int ret;
-    int unit, vm_id, vcpu_id;
+    int unit, vm_id;
+    uint32_t vcpu_id;
 
     sc = device_lookup_private(&hax_vcpu_cd, minor(self));
     if (sc == NULL) {
-        hax_error("device_lookup_private() for hax_vcpu failed\n");
+        hax_log(HAX_LOGE, "device_lookup_private() for hax_vcpu failed\n");
         return -ENODEV;
     }
 
@@ -82,7 +117,8 @@ int hax_vcpu_open(dev_t self, int flag __unused, int mode __unused,
     vcpu_id = unit2vcpuid(unit);
 
     if (!vcpu) {
-        hax_error("HAX VCPU 'hax_vm%02d/vcpu%02d' is not ready\n", vm_id, vcpu_id);
+        hax_log(HAX_LOGE, "HAX VCPU 'hax_vm%02d/vcpu%02d' is not ready\n",
+                vm_id, vcpu_id);
         return -ENODEV;
     }
 
@@ -91,13 +127,14 @@ int hax_vcpu_open(dev_t self, int flag __unused, int mode __unused,
 
     cvcpu = hax_get_vcpu(vcpu->vm->id, vcpu->id, 1);
 
-    hax_log_level(HAX_LOGD, "HAX VM%02d vcpu%02d open called\n", vcpu->vm->id, vcpu->id);
+    hax_log(HAX_LOGD, "HAX VM%02d vcpu%02d open called\n", vcpu->vm->id,
+            vcpu->id);
     if (!cvcpu)
         return -ENODEV;
 
     ret = hax_vcpu_core_open(cvcpu);
     if (ret)
-        hax_error("Failed to open core vcpu\n");
+        hax_log(HAX_LOGE, "Failed to open core vcpu\n");
     hax_put_vcpu(cvcpu);
     return ret;
 }
@@ -111,15 +148,16 @@ int hax_vcpu_close(dev_t self, int flag __unused, int mode __unused,
 
     sc = device_lookup_private(&hax_vcpu_cd, minor(self));
     if (sc == NULL) {
-        hax_error("device_lookup_private() for hax_vcpu failed\n");
+        hax_log(HAX_LOGE, "device_lookup_private() for hax_vcpu failed\n");
         return -ENODEV;
     }
     vcpu = sc->vcpu;
     cvcpu = hax_get_vcpu(vcpu->vm->id, vcpu->id, 1);
 
-    hax_log_level(HAX_LOGD, "HAX VM%02d vcpu%02d close called\n", vcpu->vm->id, vcpu->id);
+    hax_log(HAX_LOGD, "HAX VM%02d vcpu%02d close called\n", vcpu->vm->id,
+            vcpu->id);
     if (!cvcpu) {
-        hax_error("Failed to find the vcpu, is it closed already?\n");
+        hax_log(HAX_LOGE, "Failed to find the vcpu, is it closed already?\n");
         return 0;
     }
 
@@ -141,7 +179,7 @@ int hax_vcpu_ioctl(dev_t self, u_long cmd, void *data, int flag,
 
     sc = device_lookup_private(&hax_vcpu_cd, minor(self));
     if (sc == NULL) {
-        hax_error("device_lookup_private() for hax_vcpu failed\n");
+        hax_log(HAX_LOGE, "device_lookup_private() for hax_vcpu failed\n");
         return -ENODEV;
     }
     vcpu = sc->vcpu;
@@ -169,7 +207,7 @@ int hax_vcpu_ioctl(dev_t self, u_long cmd, void *data, int flag,
         msr = msrs->entries;
         /* nr_msr needs to be verified */
         if (msrs->nr_msr >= 0x20) {
-            hax_error("MSRS invalid!\n");
+            hax_log(HAX_LOGE, "MSRS invalid!\n");
             ret = -EFAULT;
             break;
         }
@@ -190,7 +228,7 @@ int hax_vcpu_ioctl(dev_t self, u_long cmd, void *data, int flag,
 
         msr = msrs->entries;
         if(msrs->nr_msr >= 0x20) {
-            hax_error("MSRS invalid!\n");
+            hax_log(HAX_LOGE, "MSRS invalid!\n");
             ret = -EFAULT;
             break;
         }
@@ -239,10 +277,18 @@ int hax_vcpu_ioctl(dev_t self, u_long cmd, void *data, int flag,
         vcpu_debug(cvcpu, hax_debug);
         break;
     }
+    case HAX_VCPU_IOCTL_SET_CPUID: {
+        struct hax_cpuid *cpuid;
+        load_user_data(cpuid, data, total, HAX_MAX_CPUID_ENTRIES, hax_cpuid,
+                       hax_cpuid_entry);
+        ret = vcpu_set_cpuid(cvcpu, cpuid);
+        unload_user_data(cpuid);
+        break;
+    }
     default:
         // TODO: Print information about the process that sent the ioctl.
-        hax_error("Unknown VCPU IOCTL %#lx, pid=%d ('%s')\n", cmd,
-                  l->l_proc->p_pid, l->l_proc->p_comm);
+        hax_log(HAX_LOGE, "Unknown VCPU IOCTL %#lx, pid=%d ('%s')\n", cmd,
+                l->l_proc->p_pid, l->l_proc->p_comm);
         ret = -ENOSYS;
         break;
     }

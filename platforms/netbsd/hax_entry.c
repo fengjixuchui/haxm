@@ -80,7 +80,7 @@ hax_vm_attach(device_t parent, device_t self, void *aux)
 
     sc = device_private(self);
     if (sc == NULL) {
-        hax_error("device_private() for hax_vm failed\n");
+        hax_log(HAX_LOGE, "device_private() for hax_vm failed\n");
         return;
     }
 
@@ -102,7 +102,7 @@ hax_vm_detach(device_t self, int flags)
 
     sc = device_private(self);
     if (sc == NULL) {
-        hax_error("device_private() for hax_vm failed\n");
+        hax_log(HAX_LOGE, "device_private() for hax_vm failed\n");
         return -ENODEV;
     }
     pmf_device_deregister(self);
@@ -120,23 +120,24 @@ static void
 hax_vcpu_attach(device_t parent, device_t self, void *aux)
 {
     struct hax_vcpu_softc *sc;
-    int unit, vm_id, cpu_id;
+    int unit, vm_id;
+    uint32_t vcpu_id;
 
     sc = device_private(self);
     if (sc == NULL) {
-        hax_error("device_private() for hax_vcpu failed\n");
+        hax_log(HAX_LOGE, "device_private() for hax_vcpu failed\n");
         return;
     }
 
     unit = device_unit(self);
     vm_id = unit2vmmid(unit);
-    cpu_id = unit2vcpuid(unit);
+    vcpu_id = unit2vcpuid(unit);
 
     sc->sc_dev = self;
     sc->vcpu = NULL;
 
     snprintf(self->dv_xname, sizeof self->dv_xname, "hax_vm%02d/vcpu%02d",
-             vm_id, cpu_id);
+             vm_id, vcpu_id);
 
     if (!pmf_device_register(self, NULL, NULL))
         aprint_error_dev(self, "couldn't establish power handler\n");
@@ -149,7 +150,7 @@ hax_vcpu_detach(device_t self, int flags)
 
     sc = device_private(self);
     if (sc == NULL) {
-        hax_error("device_private() for hax_vcpu failed\n");
+        hax_log(HAX_LOGE, "device_private() for hax_vcpu failed\n");
         return -ENODEV;
     }
     pmf_device_deregister(self);
@@ -216,60 +217,53 @@ MODULE(MODULE_CLASS_MISC, haxm, NULL);
 static int
 haxm_modcmd(modcmd_t cmd, void *arg __unused)
 {
-    struct cpu_info *ci;
-    CPU_INFO_ITERATOR cii;
     int err;
     size_t i;
 
     switch (cmd) {
     case MODULE_CMD_INIT: {
         // Initialization
-        max_cpus = 0;
-
-        ci = NULL;
-
-        for (CPU_INFO_FOREACH(cii, ci)) {
-            ++max_cpus;
-            if (!ISSET(ci->ci_schedstate.spc_flags, SPCF_OFFLINE)) {
-                cpu_online_map |= __BIT(cpu_index(ci));
-            }
+        err = cpu_info_init();
+        if (err) {
+            hax_log(HAX_LOGE, "Unable to init cpu info\n");
+            goto init_err0;
         }
 
         // Register hax_vm
         err = config_cfdriver_attach(&hax_vm_cd);
         if (err) {
-            hax_error("Unable to register cfdriver hax_vm\n");
+            hax_log(HAX_LOGE, "Unable to register cfdriver hax_vm\n");
             goto init_err1;
         }
 
         err = config_cfattach_attach(hax_vm_cd.cd_name, &hax_vm_ca);
         if (err) {
-            hax_error("Unable to register cfattch hax_vm\n");
+            hax_log(HAX_LOGE, "Unable to register cfattch hax_vm\n");
             goto init_err2;
         }
 
         err = config_cfdata_attach(hax_vm_cfdata, 1);
         if (err) {
-            hax_error("Unable to register cfdata hax_vm\n");
+            hax_log(HAX_LOGE, "Unable to register cfdata hax_vm\n");
             goto init_err3;
         }
 
         // Register hax_vcpu
         err = config_cfdriver_attach(&hax_vcpu_cd);
         if (err) {
-            hax_error("Unable to register cfdriver hax_vcpu\n");
+            hax_log(HAX_LOGE, "Unable to register cfdriver hax_vcpu\n");
             goto init_err4;
         }
 
         err = config_cfattach_attach(hax_vcpu_cd.cd_name, &hax_vcpu_ca);
         if (err) {
-            hax_error("Unable to register cfattch hax_vcpu\n");
+            hax_log(HAX_LOGE, "Unable to register cfattch hax_vcpu\n");
             goto init_err5;
         }
 
         err = config_cfdata_attach(hax_vcpu_cfdata, 1);
         if (err) {
-            hax_error("Unable to register cfdata hax_vcpu\n");
+            hax_log(HAX_LOGE, "Unable to register cfdata hax_vcpu\n");
             goto init_err6;
         }
 
@@ -277,19 +271,19 @@ haxm_modcmd(modcmd_t cmd, void *arg __unused)
         err = devsw_attach(HAX_DEVICE_NAME, NULL, &hax_bmajor, &hax_cdevsw,
                        &hax_cmajor);
         if (err) {
-            hax_error("Failed to register HAXM device\n");
+            hax_log(HAX_LOGE, "Failed to register HAXM device\n");
             goto init_err7;
         }
         err = devsw_attach(HAX_VM_DEVICE_NAME, NULL, &hax_vm_bmajor, &hax_vm_cdevsw,
                        &hax_vm_cmajor);
         if (err) {
-            hax_error("Failed to register HAXM VM device\n");
+            hax_log(HAX_LOGE, "Failed to register HAXM VM device\n");
             goto init_err8;
         }
         err = devsw_attach(HAX_VCPU_DEVICE_NAME, NULL, &hax_vcpu_bmajor, &hax_vcpu_cdevsw,
                        &hax_vcpu_cmajor);
         if (err) {
-            hax_error("Failed to register HAXM VCPU device\n");
+            hax_log(HAX_LOGE, "Failed to register HAXM VCPU device\n");
             goto init_err9;
         }
 
@@ -301,11 +295,11 @@ haxm_modcmd(modcmd_t cmd, void *arg __unused)
 
         // Initialize HAXM
         if (hax_module_init() < 0) {
-            hax_error("Failed to initialize HAXM module\n");
+            hax_log(HAX_LOGE, "Failed to initialize HAXM module\n");
             goto init_err10;
         }
 
-        hax_info("Created HAXM device\n");
+        hax_log(HAX_LOGI, "Created HAXM device\n");
         return 0;
 
 init_err10:
@@ -327,11 +321,13 @@ init_err3:
 init_err2:
         config_cfdriver_detach(&hax_vm_cd);
 init_err1:
+        cpu_info_exit();
+init_err0:
         return ENXIO;
     }
     case MODULE_CMD_FINI: {
         if (hax_module_exit() < 0) {
-            hax_error("Failed to finalize HAXM module\n");
+            hax_log(HAX_LOGE, "Failed to finalize HAXM module\n");
             return EBUSY;
         }
 
@@ -347,7 +343,7 @@ init_err1:
         config_cfattach_detach(hax_vm_cd.cd_name, &hax_vm_ca);
         config_cfdriver_detach(&hax_vm_cd);
 
-        hax_info("Removed HAXM device\n");
+        hax_log(HAX_LOGI, "Removed HAXM device\n");
         return 0;
     }
     default:

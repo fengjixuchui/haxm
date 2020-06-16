@@ -184,24 +184,8 @@ static bool hax_cmpxchg64(uint64_t old_val, uint64_t new_val, volatile uint64_t 
         return FALSE;
 }
 
-static inline bool cpu_is_online(int cpu)
-{
-    if (cpu < 0 || cpu >= max_cpus)
-        return 0;
-    return !!(((mword)1 << cpu) & cpu_online_map);
-}
-
 int hax_notify_host_event(enum hax_notify_event event, uint32_t *param,
                           uint32_t size);
-
-extern int default_hax_log_level;
-
-void hax_error(char *fmt, ...);
-void hax_warning(char *fmt, ...);
-void hax_info(char *fmt, ...);
-void hax_debug(char *fmt, ...);
-
-#define hax_panic DbgPrint
 
 #define hax_assert(condition) ASSERT(condition)
 

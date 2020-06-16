@@ -108,7 +108,7 @@ int hax_setup_vcpumem(struct hax_vcpu_mem *mem, uint64_t uva, uint32_t size,
                                   UVM_ADV_RANDOM, 0));
         uao_reference(uao);
         if (err) {
-            hax_error("Failed to map into user\n");
+            hax_log(HAX_LOGE, "Failed to map into user\n");
             uao_detach(uao);
             kmem_free(hinfo, sizeof(struct hax_vcpu_mem_hinfo_t));
             return -ENOMEM;
@@ -119,7 +119,7 @@ int hax_setup_vcpumem(struct hax_vcpu_mem *mem, uint64_t uva, uint32_t size,
 
     err = uvm_map_extract(map, uva, size, kernel_map, &kva,  UVM_EXTRACT_QREF | UVM_EXTRACT_CONTIG | UVM_EXTRACT_FIXPROT);
     if (err) {
-        hax_error("Failed to map into kernel\n");
+        hax_log(HAX_LOGE, "Failed to map into kernel\n");
         if (!ISSET(flags, HAX_VCPUMEM_VALIDVA)) {
             uvm_unmap(map, uva, uva + size);
             uao_detach(uao);
@@ -136,10 +136,6 @@ int hax_setup_vcpumem(struct hax_vcpu_mem *mem, uint64_t uva, uint32_t size,
 
 uint64_t hax_get_memory_threshold(void)
 {
-#ifdef CONFIG_HAX_EPT2
     // Since there is no memory cap, just return a sufficiently large value
     return 1ULL << 48;  // PHYSADDR_MAX + 1
-#else  // !CONFIG_HAX_EPT2
-    return 0;
-#endif  // CONFIG_HAX_EPT2
 }
